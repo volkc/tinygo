@@ -10,7 +10,6 @@ package machine
 import (
 	"device/arm"
 	"device/sam"
-	"errors"
 	"runtime/interrupt"
 	"unsafe"
 )
@@ -1151,7 +1150,7 @@ const i2cTimeout = 1000
 func (i2c *I2C) Configure(config I2CConfig) error {
 	// Default I2C bus speed is 100 kHz.
 	if config.Frequency == 0 {
-		config.Frequency = TWI_FREQ_100KHZ
+		config.Frequency = 100 * KHz
 	}
 
 	// Use default I2C pins if not set.
@@ -1526,10 +1525,6 @@ func (spi SPI) Transfer(w byte) (byte, error) {
 	// return data
 	return byte(spi.Bus.DATA.Get()), nil
 }
-
-var (
-	ErrTxInvalidSliceSize = errors.New("SPI write and read slices must be same size")
-)
 
 // Tx handles read/write operation for SPI interface. Since SPI is a syncronous write/read
 // interface, there must always be the same number of bytes written as bytes read.
@@ -1980,7 +1975,7 @@ func EnterBootloader() {
 
 	// Perform magic reset into bootloader, as mentioned in
 	// https://github.com/arduino/ArduinoCore-samd/issues/197
-	*(*uint32)(unsafe.Pointer(uintptr(0x20000000 + HSRAM_SIZE - 4))) = RESET_MAGIC_VALUE
+	*(*uint32)(unsafe.Pointer(uintptr(0x20000000 + HSRAM_SIZE - 4))) = resetMagicValue
 
 	arm.SystemReset()
 }

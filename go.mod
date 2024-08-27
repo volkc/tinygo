@@ -9,8 +9,10 @@ require (
 	github.com/chromedp/chromedp v0.7.6
 	github.com/gofrs/flock v0.8.1
 	github.com/google/shlex v0.0.0-20181106134648-c34317bd91bf
+	github.com/inhies/go-bytesize v0.0.0-20220417184213-4913239db9cf
 	github.com/marcinbor85/gohex v0.0.0-20200531091804-343a4b548892
 	github.com/mattn/go-colorable v0.1.8
+	github.com/mattn/go-tty v0.0.4
 	go.bug.st/serial v1.3.5
 	golang.org/x/sys v0.0.0-20220829200755-d48e67d00261
 	golang.org/x/tools v0.1.11

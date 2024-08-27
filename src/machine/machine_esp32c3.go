@@ -59,12 +59,9 @@ type PinChange uint8
 
 // Pin change interrupt constants for SetInterrupt.
 const (
-	PinNoInterrupt PinChange = iota
-	PinRising
+	PinRising PinChange = iota + 1
 	PinFalling
 	PinToggle
-	PinLowLevel
-	PinHighLevel
 )
 
 // Configure this pin with the given configuration.
@@ -190,7 +187,7 @@ func (p Pin) SetInterrupt(change PinChange, callback func(Pin)) (err error) {
 		return ErrInvalidInputPin
 	}
 
-	if callback == nil || change == PinNoInterrupt {
+	if callback == nil {
 		// Disable this pin interrupt
 		p.pin().ClearBits(esp.GPIO_PIN_PIN_INT_TYPE_Msk | esp.GPIO_PIN_PIN_INT_ENA_Msk)
 
@@ -263,15 +260,6 @@ type UART struct {
 	DataErrorDetected    bool // set when data corruption detected
 	DataOverflowDetected bool // set when data overflow detected in UART FIFO buffer or RingBuffer
 }
-
-type UARTStopBits int
-
-const (
-	UARTStopBits_Default UARTStopBits = iota
-	UARTStopBits_1
-	UARTStopBits_1_5
-	UARTStopBits_2
-)
 
 const (
 	defaultDataBits = 8

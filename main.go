@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/google/shlex"
+	"github.com/inhies/go-bytesize"
 	"github.com/mattn/go-colorable"
 	"github.com/tinygo-org/tinygo/builder"
 	"github.com/tinygo-org/tinygo/compileopts"
@@ -243,17 +244,36 @@ func Test(pkgName string, stdout, stderr io.Writer, options *compileopts.Options
 		// Tests are always run in the package directory.
 		cmd.Dir = result.MainDir
 
-		// Wasmtime needs a few extra flags to work.
+		// wasmtime is the default emulator used for `-target=wasi`. wasmtime
+		// is a WebAssembly runtime CLI with WASI enabled by default. However,
+		// only stdio are allowed by default. For example, while STDOUT routes
+		// to the host, other files don't. It also does not inherit environment
+		// variables from the host. Some tests read testdata files, often from
+		// outside the package directory. Other tests require temporary
+		// writeable directories. We allow this by adding wasmtime flags below.
 		if config.EmulatorName() == "wasmtime" {
-			// Add directories to the module root, but skip the current working
-			// directory which is already added by buildAndRun.
+			// At this point, The current working directory is at the package
+			// directory. Ex. $GOROOT/src/compress/flate for compress/flate.
+			// buildAndRun has already added arguments for wasmtime, that allow
+			// read-access to files such as "testdata/huffman-zero.in".
+			//
+			// Ex. main(.wasm) --dir=. -- -test.v
+
+			// Below adds additional wasmtime flags in case a test reads files
+			// outside its directory, like "../testdata/e.txt". This allows any
+			// relative directory up to the module root, even if the test never
+			// reads any files.
+			//
+			// Ex. --dir=.. --dir=../.. --dir=../../..
 			dirs := dirsToModuleRoot(result.MainDir, result.ModuleRoot)
 			var args []string
 			for _, d := range dirs[1:] {
 				args = append(args, "--dir="+d)
 			}
 
-			// create a new temp directory just for this run, announce it to os.TempDir() via TMPDIR
+			// Some tests create temp directories using os.MkdirTemp or via
+			// t.TempDir(). Create a writeable directory and map it to the
+			// default tempDir environment variable: TMPDIR.
 			tmpdir, err := os.MkdirTemp("", "tinygotmp")
 			if err != nil {
 				return fmt.Errorf("failed to create temporary directory: %w", err)
@@ -262,7 +282,8 @@ func Test(pkgName string, stdout, stderr io.Writer, options *compileopts.Options
 			// TODO: add option to not delete temp dir for debugging?
 			defer os.RemoveAll(tmpdir)
 
-			// Insert new argments at the front of the command line argments.
+			// The below re-organizes the arguments so that the current
+			// directory is added last.
 			args = append(args, cmd.Args[1:]...)
 			cmd.Args = append(cmd.Args[:1:1], args...)
 		}
@@ -402,7 +423,6 @@ func Flash(pkgName, port string, options *compileopts.Options) error {
 			if err != nil {
 				return &commandError{"failed to flash", result.Binary, err}
 			}
-			return nil
 		case "msd":
 			switch fileExt {
 			case ".uf2":
@@ -410,13 +430,11 @@ func Flash(pkgName, port string, options *compileopts.Options) error {
 				if err != nil {
 					return &commandError{"failed to flash", result.Binary, err}
 				}
-				return nil
 			case ".hex":
 				err := flashHexUsingMSD(config.Target.FlashVolume, result.Binary, config.Options)
 				if err != nil {
 					return &commandError{"failed to flash", result.Binary, err}
 				}
-				return nil
 			default:
 				return errors.New("mass storage device flashing currently only supports uf2 and hex")
 			}
@@ -437,7 +455,6 @@ func Flash(pkgName, port string, options *compileopts.Options) error {
 			if err != nil {
 				return &commandError{"failed to flash", result.Binary, err}
 			}
-			return nil
 		case "bmp":
 			gdb, err := config.Target.LookupGDB()
 			if err != nil {
@@ -456,10 +473,13 @@ func Flash(pkgName, port string, options *compileopts.Options) error {
 			if err != nil {
 				return &commandError{"failed to flash", result.Binary, err}
 			}
-			return nil
 		default:
 			return fmt.Errorf("unknown flash method: %s", flashMethod)
 		}
+		if options.Monitor {
+			return Monitor("", options)
+		}
+		return nil
 	})
 }
 
@@ -978,7 +998,8 @@ func getDefaultPort(portFlag string, usbInterfaces []string) (port string, err e
 			preferredPortIDs = append(preferredPortIDs, [2]uint16{uint16(vid), uint16(pid)})
 		}
 
-		var primaryPorts []string // ports picked from preferred USB VID/PID
+		var primaryPorts []string   // ports picked from preferred USB VID/PID
+		var secondaryPorts []string // other ports (as a fallback)
 		for _, p := range portsList {
 			if !p.IsUSB {
 				continue
@@ -1000,6 +1021,8 @@ func getDefaultPort(portFlag string, usbInterfaces []string) (port string, err e
 					continue
 				}
 			}
+
+			secondaryPorts = append(secondaryPorts, p.Name)
 		}
 		if len(primaryPorts) == 1 {
 			// There is exactly one match in the set of preferred ports. Use
@@ -1011,18 +1034,10 @@ func getDefaultPort(portFlag string, usbInterfaces []string) (port string, err e
 			// one device of the same type are connected (e.g. two Arduino
 			// Unos).
 			ports = primaryPorts
-		}
-
-		if len(ports) == 0 {
-			// fallback
-			switch runtime.GOOS {
-			case "darwin":
-				ports, err = filepath.Glob("/dev/cu.usb*")
-			case "linux":
-				ports, err = filepath.Glob("/dev/ttyACM*")
-			case "windows":
-				ports, err = serial.GetPortsList()
-			}
+		} else {
+			// No preferred ports found. Fall back to other serial ports
+			// available in the system.
+			ports = secondaryPorts
 		}
 	default:
 		return "", errors.New("unable to search for a default USB device to be flashed on this OS")
@@ -1037,7 +1052,9 @@ func getDefaultPort(portFlag string, usbInterfaces []string) (port string, err e
 	}
 
 	if len(portCandidates) == 0 {
-		if len(ports) == 1 {
+		if len(usbInterfaces) > 0 {
+			return "", errors.New("unable to search for a default USB device - use -port flag, available ports are " + strings.Join(ports, ", "))
+		} else if len(ports) == 1 {
 			return ports[0], nil
 		} else {
 			return "", errors.New("multiple serial ports available - use -port flag, available ports are " + strings.Join(ports, ", "))
@@ -1102,6 +1119,7 @@ func usage(command string) {
 		fmt.Fprintln(os.Stderr, "  flash:   compile and flash to the device")
 		fmt.Fprintln(os.Stderr, "  gdb:     run/flash and immediately enter GDB")
 		fmt.Fprintln(os.Stderr, "  lldb:    run/flash and immediately enter LLDB")
+		fmt.Fprintln(os.Stderr, "  monitor: open communication port")
 		fmt.Fprintln(os.Stderr, "  env:     list environment variables used during build")
 		fmt.Fprintln(os.Stderr, "  list:    run go list using the TinyGo root")
 		fmt.Fprintln(os.Stderr, "  clean:   empty cache directory ("+goenv.Get("GOCACHE")+")")
@@ -1298,6 +1316,12 @@ func main() {
 	var tags buildutil.TagsFlag
 	flag.Var(&tags, "tags", "a space-separated list of extra build tags")
 	target := flag.String("target", "", "chip/board name or JSON target specification file")
+	var stackSize uint64
+	flag.Func("stack-size", "goroutine stack size (if unknown at compile time)", func(s string) error {
+		size, err := bytesize.Parse(s)
+		stackSize = uint64(size)
+		return err
+	})
 	printSize := flag.String("size", "", "print sizes (none, short, full)")
 	printStacks := flag.Bool("print-stacks", false, "print stack sizes of goroutines")
 	printAllocsString := flag.String("print-allocs", "", "regular expression of functions for which heap allocations should be printed")
@@ -1312,6 +1336,8 @@ func main() {
 	wasmAbi := flag.String("wasm-abi", "", "WebAssembly ABI conventions: js (no i64 params) or generic")
 	llvmFeatures := flag.String("llvm-features", "", "comma separated LLVM features to enable")
 	cpuprofile := flag.String("cpuprofile", "", "cpuprofile output")
+	monitor := flag.Bool("monitor", false, "enable serial monitor")
+	baudrate := flag.Int("baudrate", 115200, "baudrate of serial monitor")
 
 	var flagJSON, flagDeps, flagTest bool
 	if command == "help" || command == "list" || command == "info" || command == "build" {
@@ -1378,6 +1404,7 @@ func main() {
 		GOARCH:          goenv.Get("GOARCH"),
 		GOARM:           goenv.Get("GOARM"),
 		Target:          *target,
+		StackSize:       stackSize,
 		Opt:             *opt,
 		GC:              *gc,
 		PanicStrategy:   *panicStrategy,
@@ -1400,6 +1427,8 @@ func main() {
 		OpenOCDCommands: ocdCommands,
 		LLVMFeatures:    *llvmFeatures,
 		PrintJSON:       flagJSON,
+		Monitor:         *monitor,
+		BaudRate:        *baudrate,
 	}
 	if *printCommands {
 		options.PrintCommands = printCommand
@@ -1590,6 +1619,9 @@ func main() {
 			fmt.Println("FAIL")
 			os.Exit(1)
 		}
+	case "monitor":
+		err := Monitor(*port, options)
+		handleCompilerError(err)
 	case "targets":
 		dir := filepath.Join(goenv.Get("TINYGOROOT"), "targets")
 		entries, err := ioutil.ReadDir(dir)

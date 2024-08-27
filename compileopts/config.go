@@ -175,6 +175,15 @@ func (c *Config) AutomaticStackSize() bool {
 	return false
 }
 
+// StackSize returns the default stack size to be used for goroutines, if the
+// stack size could not be determined automatically at compile time.
+func (c *Config) StackSize() uint64 {
+	if c.Options.StackSize != 0 {
+		return c.Options.StackSize
+	}
+	return c.Target.DefaultStackSize
+}
+
 // UseThinLTO returns whether ThinLTO should be used for the given target. Some
 // targets (such as wasm) are not yet supported.
 // We should try and remove as many exceptions as possible in the future, so
@@ -368,8 +377,8 @@ func (c *Config) VerifyIR() bool {
 }
 
 // Debug returns whether debug (DWARF) information should be retained by the
-// linker. By default, debug information is retained but it can be removed with
-// the -no-debug flag.
+// linker. By default, debug information is retained, but it can be removed
+// with the -no-debug flag.
 func (c *Config) Debug() bool {
 	return c.Options.Debug
 }
@@ -457,7 +466,14 @@ func (c *Config) OpenOCDConfiguration() (args []string, err error) {
 		args = append(args, "-c", cmd)
 	}
 	if c.Target.OpenOCDTransport != "" {
-		args = append(args, "-c", "transport select "+c.Target.OpenOCDTransport)
+		transport := c.Target.OpenOCDTransport
+		if transport == "swd" {
+			switch openocdInterface {
+			case "stlink-dap":
+				transport = "dapdirect_swd"
+			}
+		}
+		args = append(args, "-c", "transport select "+transport)
 	}
 	args = append(args, "-f", "target/"+c.Target.OpenOCDTarget+".cfg")
 	return args, nil
