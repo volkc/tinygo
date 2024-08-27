@@ -186,5 +186,7 @@ func cdcSetup(setup usb.Setup) bool {
 
 func EnableUSBCDC() {
 	machine.USBCDC = New()
-	machine.EnableCDC(USB.Flush, cdcCallbackRx, cdcSetup)
+    machine.LED.Configure(machine.PinConfig{Mode: machine.PinOutput})
+    machine.LED.High()
+	//machine.EnableCDC(USB.Flush, cdcCallbackRx, cdcSetup)
 }

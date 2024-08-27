@@ -60,6 +60,7 @@ func preinit() {
 func initHardware() {
 	initUART()
 	initMonotonicTimer()
+
 	nextTimerRecalibrate = ticks() + timerRecalibrateInterval
 
 	// Enable interrupts after initialization.

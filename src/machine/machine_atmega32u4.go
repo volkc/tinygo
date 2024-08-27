@@ -1,5 +1,5 @@
-//go:build avr && atmega1284p
-// +build avr,atmega1284p
+//go:build avr && atmega32u4
+// +build avr,atmega32u4
 
 package machine
 
@@ -8,27 +8,15 @@ import (
 	"runtime/volatile"
 )
 
-// Return the current CPU frequency in hertz.
-func CPUFrequency() uint32 {
-	return 20000000
-}
-
 const (
-	portA Pin = iota * 8
-	portB
+	portB Pin = iota * 8
 	portC
 	portD
+	portE
+	portF
 )
 
 const (
-	PA0 = portA + 0
-	PA1 = portA + 1
-	PA2 = portA + 2
-	PA3 = portA + 3
-	PA4 = portA + 4
-	PA5 = portA + 5
-	PA6 = portA + 6
-	PA7 = portA + 7
 	PB0 = portB + 0
 	PB1 = portB + 1
 	PB2 = portB + 2
@@ -37,12 +25,6 @@ const (
 	PB5 = portB + 5
 	PB6 = portB + 6
 	PB7 = portB + 7
-	PC0 = portC + 0
-	PC1 = portC + 1
-	PC2 = portC + 2
-	PC3 = portC + 3
-	PC4 = portC + 4
-	PC5 = portC + 5
 	PC6 = portC + 6
 	PC7 = portC + 7
 	PD0 = portD + 0
@@ -53,28 +35,38 @@ const (
 	PD5 = portD + 5
 	PD6 = portD + 6
 	PD7 = portD + 7
+	PE2 = portE + 2
+	PE6 = portE + 6
+	PF0 = portF + 0
+	PF1 = portF + 1
+	PF4 = portF + 4
+	PF5 = portF + 5
+	PF6 = portF + 6
+	PF7 = portF + 7
 )
 
 // getPortMask returns the PORTx register and mask for the pin.
 func (p Pin) getPortMask() (*volatile.Register8, uint8) {
 	switch {
-	case p >= PA0 && p <= PA7:
-		return avr.PORTA, 1 << uint8(p-portA)
-	case p >= PB0 && p <= PB7:
+	case p >= PB0 && p <= PB7: // port B
 		return avr.PORTB, 1 << uint8(p-portB)
-	case p >= PC0 && p <= PC7:
+	case p >= PC6 && p <= PC7: // port C
 		return avr.PORTC, 1 << uint8(p-portC)
-	default:
+	case p >= PD0 && p <= PD7: // port D
 		return avr.PORTD, 1 << uint8(p-portD)
+	case p == PE2 || p == PE6: // port E
+		return avr.PORTE, 1 << uint8(p-portE)
+	default: // port F
+		return avr.PORTF, 1 << uint8(p-portF)
 	}
 }
 
 // SPI configuration
 var SPI0 = SPI{
 	spcr: avr.SPCR,
-	spsr: avr.SPSR,
 	spdr: avr.SPDR,
-	sck:  PB7,
-	sdo:  PB5,
-	sdi:  PB6,
-	cs:   PB4}
+	spsr: avr.SPSR,
+	sck:  PB1,
+	sdo:  PB2,
+	sdi:  PB3,
+	cs:   PB0}

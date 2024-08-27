@@ -122,30 +122,6 @@ func (i2c *I2C) readByte() byte {
 	return byte(avr.TWDR.Get())
 }
 
-// Always use UART0 as the serial output.
-var DefaultUART = UART0
-
-// UART
-var (
-	// UART0 is the hardware serial port on the AVR.
-	UART0  = &_UART0
-	_UART0 = UART{
-		Buffer: NewRingBuffer(),
-
-		dataReg:    avr.UDR0,
-		baudRegH:   avr.UBRR0H,
-		baudRegL:   avr.UBRR0L,
-		statusRegA: avr.UCSR0A,
-		statusRegB: avr.UCSR0B,
-		statusRegC: avr.UCSR0C,
-	}
-)
-
-func init() {
-	// Register the UART interrupt.
-	interrupt.New(irq_USART0_RX, _UART0.handleInterrupt)
-}
-
 // UART on the AVR.
 type UART struct {
 	Buffer *RingBuffer
@@ -157,6 +133,15 @@ type UART struct {
 	statusRegA *volatile.Register8
 	statusRegB *volatile.Register8
 	statusRegC *volatile.Register8
+
+	maskRegAFramingError      uint8
+	maskRegADataOverrun       uint8
+	maskRegAParityError       uint8
+	maskRegABufferReady       uint8
+	maskRegBEnableRX          uint8
+	maskRegBEnableTX          uint8
+	maskRegBEnableRXInterrupt uint8
+	maskRegCCharacterSize     uint8
 }
 
 // Configure the UART on the AVR. Defaults to 9600 baud on Arduino.
@@ -173,10 +158,10 @@ func (uart *UART) Configure(config UARTConfig) {
 	uart.baudRegL.Set(uint8(ps & 0xff))
 
 	// enable RX, TX and RX interrupt
-	uart.statusRegB.Set(avr.UCSR0B_RXEN0 | avr.UCSR0B_TXEN0 | avr.UCSR0B_RXCIE0)
+	uart.statusRegB.Set(uart.maskRegBEnableRX | uart.maskRegBEnableTX | uart.maskRegBEnableRXInterrupt)
 
 	// 8-bits data
-	uart.statusRegC.Set(avr.UCSR0C_UCSZ01 | avr.UCSR0C_UCSZ00)
+	uart.statusRegC.Set(uart.maskRegCCharacterSize)
 }
 
 func (uart *UART) handleInterrupt(intr interrupt.Interrupt) {
@@ -184,7 +169,7 @@ func (uart *UART) handleInterrupt(intr interrupt.Interrupt) {
 	data := uart.dataReg.Get()
 
 	// Ensure no error.
-	if !uart.statusRegA.HasBits(avr.UCSR0A_FE0 | avr.UCSR0A_DOR0 | avr.UCSR0A_UPE0) {
+	if !uart.statusRegA.HasBits(uart.maskRegAFramingError | uart.maskRegADataOverrun | uart.maskRegAParityError) {
 		// Put data from UDR register into buffer.
 		uart.Receive(byte(data))
 	}
@@ -193,7 +178,7 @@ func (uart *UART) handleInterrupt(intr interrupt.Interrupt) {
 // WriteByte writes a byte of data to the UART.
 func (uart *UART) WriteByte(c byte) error {
 	// Wait until UART buffer is not busy.
-	for !uart.statusRegA.HasBits(avr.UCSR0A_UDRE0) {
+	for !uart.statusRegA.HasBits(uart.maskRegABufferReady) {
 	}
 	uart.dataReg.Set(c) // send char
 	return nil

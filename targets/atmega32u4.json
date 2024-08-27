@@ -1,0 +1,15 @@
+{
+	"inherits": ["avr"],
+	"cpu": "atmega32u4",
+	"build-tags": ["atmega32u4", "atmega", "avr5"],
+	"serial": "usb",
+	"ldflags": [
+		"-mmcu=atmega32u4",
+        "-nostartfiles"
+	],
+	"linkerscript": "src/device/avr/atmega32u4.ld",
+	"extra-files": [
+        "targets/avr.S",
+        "src/device/avr/atmega32u4.s"
+	]
+}

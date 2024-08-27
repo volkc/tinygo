@@ -9,8 +9,6 @@ import (
 	"runtime/volatile"
 )
 
-const irq_USART0_RX = avr.IRQ_USART0_RX
-
 const (
 	portA Pin = iota * 8
 	portB

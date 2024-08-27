@@ -6,10 +6,16 @@ package runtime
 import (
 	"device/avr"
 	"machine"
+    "machine/usb/cdc"
 )
 
+func init() {
+    cdc.EnableUSBCDC()
+    machine.USBDev.Configure(machine.UARTConfig{})
+    machine.InitSerial()
+}
+
 func initUART() {
-	machine.InitSerial()
 }
 
 func putchar(c byte) {

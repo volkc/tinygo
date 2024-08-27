@@ -8,8 +8,6 @@ import (
 	"runtime/volatile"
 )
 
-const irq_USART0_RX = avr.IRQ_USART0_RX
-
 // getPortMask returns the PORTx register and mask for the pin.
 func (p Pin) getPortMask() (*volatile.Register8, uint8) {
 	switch {
